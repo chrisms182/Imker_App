@@ -51,9 +51,15 @@ if file_to_load:
     
     # Der "Sauberkeits"-Check
     if df is not None:
+        # Wir suchen die Spalten, die "Milben" oder "Waben" enthalten und geben ihnen einfache Namen
+        for col in df.columns:
+            if "Milben" in col:
+                df = df.rename(columns={col: "Milben"})
+            if "Besetzte Waben" in col or ("Waben" in col and "Besetz" in col):
+                df = df.rename(columns={col: "Waben_besetzt"})
         # Datum konvertieren und bereinigen
         df['Datum des Eintrags'] = pd.to_datetime(df['Datum des Eintrags'], dayfirst=True, errors='coerce')
-        df = df.dropna(subset=['Datum des Eintrags', 'Stockname'])        
+        df = df.dropna(subset=['Datum des Eintrags', 'Stockname'])    
     else:
         st.error("⚠️ Fehler: Es konnten keine Daten aus der Datei extrahiert werden.")
         st.stop() # Stoppt die App hier, damit keine Folgefehler kommen
@@ -110,8 +116,8 @@ if st.session_state.auswahl_voelker:
     metriken = {
         "Gewicht": "Gewicht",
         "Zunahme/Abnahme": "Gewicht_Diff",
-        "Varroa": "Gezählte Milben",
-        "Volksstärke": "Besetzte Waben"
+        "Varroa": "Milben",
+        "Volksstärke": "Waben_besetzt"
     }
 
     if 'gewaehlte_metrik' not in st.session_state:
@@ -138,26 +144,48 @@ if st.session_state.auswahl_voelker:
         # Hier kannst du weitere Filter einbauen
 
     with opt_col2:
-        # Daten filtern und berechnen
+        # 1. Daten filtern & sortieren
         volk_df = df[df['Stockname'] == gewaehltes_volk].copy().sort_values("Datum des Eintrags")
         
-        # Berechnung für die Differenz-Metrik
+        # Metrik-Logik
+        y_spalte = "Gewicht"
         if st.session_state.gewaehlte_metrik == "Zunahme/Abnahme":
             volk_df['Gewicht_Diff'] = volk_df['Gewicht'].diff()
-            y_achse = 'Gewicht_Diff'
-        else:
-            y_achse = metriken[st.session_state.gewaehlte_metrik]
+            y_spalte = "Gewicht_Diff"
+        elif st.session_state.gewaehlte_metrik == "Varroa":
+            y_spalte = "Milben"
+        elif st.session_state.gewaehlte_metrik == "Volksstärke":
+            y_spalte = "Waben_besetzt"
 
-        # Graph zeichnen
-        if not volk_df[y_achse].dropna().empty:
-            fig = px.line(volk_df, x='Datum des Eintrags', y=y_achse, 
-                          title=f"{st.session_state.gewaehlte_metrik} - {gewaehltes_volk}",
-                          markers=True)
-            
-            fig.update_traces(line=dict(width=4), marker=dict(size=10))
+        # --- WICHTIG: Nur Zeilen behalten, die einen Wert in der gewählten Spalte haben ---
+        plot_df = volk_df.dropna(subset=[y_spalte])
+
+        if not plot_df.empty:
+            # 2. Den Graphen erstellen
+            fig = px.line(
+                plot_df, 
+                x='Datum des Eintrags', 
+                y=y_spalte,
+                template="plotly_dark",
+                markers=True
+            )
+
+            # 3. Styling & Lücken schließen
+            fig.update_traces(
+                line=dict(color='#FFC107', width=3),
+                connectgaps=True, # Verbindet Punkte, auch wenn Daten dazwischen fehlen
+                marker=dict(size=8, color='white', line=dict(width=1, color='#FFC107')),
+                hovertemplate="<b>Datum:</b> %{x|%d.%m.%Y}<br><b>Wert:</b> %{y:.2f}<extra></extra>"
+            )
+
+            fig.update_layout(
+                xaxis=dict(title="Datum", showgrid=False),
+                yaxis=dict(title=st.session_state.gewaehlte_metrik, gridcolor="rgba(255,255,255,0.1)"),
+                plot_bgcolor="rgba(0,0,0,0)",
+                paper_bgcolor="rgba(0,0,0,0)",
+                hovermode="x unified"
+            )
+
             st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning(f"Keine Daten für '{st.session_state.gewaehlte_metrik}' vorhanden.")
-
 else:
     st.info("👆 Bitte wähle oben ein Volk aus, um die Details zu sehen.")
