@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import os
+from datetime import datetime
 
 st.set_page_config(page_title="Imker-Analyse", layout="wide")
 if 'auswahl_voelker' not in st.session_state:
@@ -26,7 +27,9 @@ with col1:
         st.info(f"ℹ️ Du nutzt gerade eine manuell hochgeladene Datei. ({uploaded_file.name})")
     elif os.path.exists(DEFAULT_FILE):
         file_to_load = DEFAULT_FILE
-        st.success(f"✅ Basis-Daten ({DEFAULT_FILE}) geladen.")
+        ts = os.path.getmtime(DEFAULT_FILE)
+        datum_str = datetime.fromtimestamp(ts).strftime('%d.%m.%Y um %H:%M')
+        st.success(f"✅ Basis-Daten ({DEFAULT_FILE}, Stand: {datum_str} Uhr) geladen.")
     else:
         st.info("ℹ️ Keine Daten gefunden. Bitte CSV hochladen.")
 
