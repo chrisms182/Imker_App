@@ -7,6 +7,8 @@ from datetime import datetime
 st.set_page_config(page_title="Imker-Analyse", layout="wide")
 if 'auswahl_voelker' not in st.session_state:
     st.session_state.auswahl_voelker = []
+if 'chart_typ' not in st.session_state:
+    st.session_state.chart_typ = "Linien-Diagramm"
 
 
 # --- HEADER BEREICH ---
@@ -137,17 +139,31 @@ if st.session_state.auswahl_voelker:
 
     with opt_col1:
         st.write("#### ⚙️ Anzeige-Optionen")
+        #Zeitraum Auswahl
         zeitraum = st.radio(
             "Zeitraum auswählen:",
             ["Alles anzeigen", "Letzte 30 Tage", "Letzte 7 Tage"]
         )
-        # Hier kannst du weitere Filter einbauen
+        #Diagramm-Typ Auswahl
+        chart_typ = st.radio(
+            "Diagramm-Typ:",
+            ["Linien-Diagramm", "Balkendiagramm"]
+        )
 
     with opt_col2:
-        # 1. Daten filtern & sortieren
+        # 1. Daten für das gewählte Volk holen
         volk_df = df[df['Stockname'] == gewaehltes_volk].copy().sort_values("Datum des Eintrags")
         
-        # Metrik-Logik
+        # --- ZEITFILTER ANWENDEN ---
+        letztes_datum = volk_df['Datum des Eintrags'].max()
+        if zeitraum == "Letzte 30 Tage" and pd.notnull(letztes_datum):
+            stichtag = letztes_datum - pd.Timedelta(days=30)
+            volk_df = volk_df[volk_df['Datum des Eintrags'] >= stichtag]
+        elif zeitraum == "Letzte 7 Tage" and pd.notnull(letztes_datum):
+            stichtag = letztes_datum - pd.Timedelta(days=7)
+            volk_df = volk_df[volk_df['Datum des Eintrags'] >= stichtag]
+
+        # 2. Metrik-Logik
         y_spalte = "Gewicht"
         if st.session_state.gewaehlte_metrik == "Zunahme/Abnahme":
             volk_df['Gewicht_Diff'] = volk_df['Gewicht'].diff()
@@ -157,27 +173,31 @@ if st.session_state.auswahl_voelker:
         elif st.session_state.gewaehlte_metrik == "Volksstärke":
             y_spalte = "Waben_besetzt"
 
-        # --- WICHTIG: Nur Zeilen behalten, die einen Wert in der gewählten Spalte haben ---
+        # Nur Zeilen mit Werten behalten
         plot_df = volk_df.dropna(subset=[y_spalte])
 
         if not plot_df.empty:
-            # 2. Den Graphen erstellen
-            fig = px.line(
-                plot_df, 
-                x='Datum des Eintrags', 
-                y=y_spalte,
-                template="plotly_dark",
-                markers=True
-            )
+            # 3. Entscheidung: Welches Diagramm zeichnen?
+            if chart_typ == "Linien-Diagramm":
+                fig = px.line(
+                    plot_df, x='Datum des Eintrags', y=y_spalte,
+                    template="plotly_dark", markers=True
+                )
+                fig.update_traces(
+                    line=dict(color='#FFC107', width=3),
+                    connectgaps=True,
+                    marker=dict(size=8, color='white', line=dict(width=1, color='#FFC107'))
+                )
+            else:
+                # Balkendiagramm
+                fig = px.bar(
+                    plot_df, x='Datum des Eintrags', y=y_spalte,
+                    template="plotly_dark"
+                )
+                # Balken in Bienen-Gelb einfärben
+                fig.update_traces(marker_color='#FFC107', marker_line_color='white', marker_line_width=0.5)
 
-            # 3. Styling & Lücken schließen
-            fig.update_traces(
-                line=dict(color='#FFC107', width=3),
-                connectgaps=True, # Verbindet Punkte, auch wenn Daten dazwischen fehlen
-                marker=dict(size=8, color='white', line=dict(width=1, color='#FFC107')),
-                hovertemplate="<b>Datum:</b> %{x|%d.%m.%Y}<br><b>Wert:</b> %{y:.2f}<extra></extra>"
-            )
-
+            # Gemeinsames Layout
             fig.update_layout(
                 xaxis=dict(title="Datum", showgrid=False),
                 yaxis=dict(title=st.session_state.gewaehlte_metrik, gridcolor="rgba(255,255,255,0.1)"),
@@ -187,5 +207,7 @@ if st.session_state.auswahl_voelker:
             )
 
             st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info(f"💡 Keine Daten für **'{st.session_state.gewaehlte_metrik}'** im gewählten Zeitraum vorhanden.")
 else:
     st.info("👆 Bitte wähle oben ein Volk aus, um die Details zu sehen.")
