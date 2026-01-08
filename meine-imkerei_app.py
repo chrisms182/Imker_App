@@ -1,19 +1,34 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import os
 
 st.set_page_config(page_title="Imker-Analyse", layout="wide")
 st.title("🐝 Meine Völker-Auswertung")
 
-# Datei-Upload
-uploaded_file = st.file_uploader("KIM-CSV Datei hochladen", type=["csv"])
+# --- DATEI-LOGIK ---
+# Wir schauen, ob eine Basis-Datei auf GitHub liegt
+DEFAULT_FILE = "daten.csv"
+uploaded_file = st.file_uploader("KIM-CSV Datei hochladen (optional, überschreibt Basis-Daten)", type=["csv"])
 
-if uploaded_file:
-    # 1. Daten einlesen mit Fehler-Toleranz
+# Entscheidung: Welche Datei nehmen wir?
+file_to_load = None
+
+if uploaded_file is not None:
+    file_to_load = uploaded_file
+    st.info("Du nutzt gerade eine manuell hochgeladene Datei.")
+elif os.path.exists(DEFAULT_FILE):
+    file_to_load = DEFAULT_FILE
+    st.success(f"Basis-Daten ({DEFAULT_FILE}) erfolgreich von GitHub geladen.")
+else:
+    st.warning("Keine Daten gefunden. Bitte lade eine CSV-Datei hoch oder hinterlege 'daten.csv' auf GitHub.")
+
+if file_to_load:
+    # 1. Daten einlesen
     try:
-        df = pd.read_csv(uploaded_file, sep=None, engine='python', encoding='latin-1')
+        df = pd.read_csv(file_to_load, sep=None, engine='python', encoding='latin-1')
     except Exception:
-        df = pd.read_csv(uploaded_file, sep=None, engine='python', encoding='utf-8')
+        df = pd.read_csv(file_to_load, sep=None, engine='python', encoding='utf-8')
 
     # Datum konvertieren und bereinigen
     df['Datum des Eintrags'] = pd.to_datetime(df['Datum des Eintrags'], dayfirst=True, errors='coerce')
@@ -54,18 +69,14 @@ if uploaded_file:
         )
 
         # --- HINTERGRUND & ACHSEN LOGIK ---
-        
-        # 1. Fall: Status-Zonen (Horizontale Balken)
         if bg_modus == "Status-Zonen":
             fig.add_hrect(y0=0, y1=15, fillcolor="red", opacity=0.15, annotation_text="Futternot", line_width=0)
             fig.add_hrect(y0=15, y1=20, fillcolor="yellow", opacity=0.15, annotation_text="Beobachten", line_width=0)
             fig.add_hrect(y0=20, y1=45, fillcolor="green", opacity=0.08, annotation_text="Optimal", line_width=0)
-            fig.update_xaxes(showticklabels=True) # Standard-Labels anlassen
-
-        # 2. Fall: Monats-Raster (Vertikale Balken + eigene Beschriftung)
+            show_ticks = True
+        
         elif bg_modus == "Monats-Raster" and x_modus == "Kalenderdatum":
-            fig.update_xaxes(showticklabels=False) # Standard-Labels AUSSCHALTEN
-            
+            show_ticks = False
             start_m = df_plot['Datum des Eintrags'].min().replace(day=1)
             end_m = df_plot['Datum des Eintrags'].max()
             current = start_m
@@ -76,10 +87,8 @@ if uploaded_file:
             while current <= end_m:
                 next_m = (current + pd.DateOffset(months=1))
                 mid_point = current + (next_m - current) / 2
-                
                 if i % 2 == 0:
                     fig.add_vrect(x0=current, x1=next_m, fillcolor="white", opacity=0.07, line_width=0)
-                
                 fig.add_annotation(
                     x=mid_point, y=0, yref="paper",
                     text=f"<b>{monate_namen[current.month]} {current.year}</b>",
@@ -88,17 +97,13 @@ if uploaded_file:
                 )
                 current = next_m
                 i += 1
-            fig.update_layout(margin=dict(b=80)) # Platz unten schaffen
-
-        # 3. Fall: Kein Hintergrund
+            fig.update_layout(margin=dict(b=80))
         else:
-            fig.update_xaxes(showticklabels=True) # Standard-Labels anlassen
+            show_ticks = True
             fig.update_layout(margin=dict(b=40))
 
-        # Finale Layout-Einstellungen
-        fig.update_xaxes(title_text=label_x)
+        fig.update_xaxes(title_text=label_x, showticklabels=show_ticks)
         fig.update_yaxes(title_text="Gewicht (kg)")
-
         st.plotly_chart(fig, use_container_width=True)
         
         # --- WARNSYSTEM ---
@@ -106,8 +111,5 @@ if uploaded_file:
         for stock, row in aktuelle_werte.iterrows():
             if row['Gewicht'] < 15:
                 st.error(f"⚠️ **{stock}** kritisch: Nur noch {row['Gewicht']}kg!")
-        
     else:
-        st.warning("Keine Gewichtsdaten gefunden.")
-else:
-    st.info("Bitte lade die KIM-CSV Datei hoch.")
+        st.warning("Keine Gewichtsdaten für die Auswahl gefunden.")
