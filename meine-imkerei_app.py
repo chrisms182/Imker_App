@@ -5,6 +5,7 @@ import os
 
 st.set_page_config(page_title="Imker-Analyse", layout="wide")
 
+
 # --- HEADER BEREICH ---
 col1, col2 = st.columns([2, 1], vertical_alignment="bottom")
 with col1:
@@ -29,6 +30,7 @@ with col1:
 
 with col2:
     st.image("BienenLogo.jpg", use_container_width=True)
+
 
 # --- Verarbeitung ---
 if file_to_load:
@@ -132,3 +134,21 @@ if file_to_load:
         
     else:
         st.warning("Keine Gewichtsdaten gefunden.")
+
+
+# --- Völkerauswahl ---
+st.write("### Schnellzugriff Völker")
+alle_voelker = sorted(df['Stockname'].unique())
+
+spalten_pro_reihe = 15
+for i in range(0, len(alle_voelker), spalten_pro_reihe):
+    # Erstelle eine Reihe von Spalten
+    aktuelle_auswahl = alle_voelker[i : i + spalten_pro_reihe]
+    cols = st.columns(spalten_pro_reihe)
+    
+    for j, volk_name in enumerate(aktuelle_auswahl):
+        with cols[j]:
+            st.image("VolkLogo.jpg", use_container_width=True)
+            if st.button(volk_name, key=f"btn_{volk_name}", use_container_width=True):
+                st.session_state.auswahl_voelker = [volk_name]
+                st.rerun()
