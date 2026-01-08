@@ -9,6 +9,8 @@ if 'auswahl_voelker' not in st.session_state:
     st.session_state.auswahl_voelker = []
 if 'chart_typ' not in st.session_state:
     st.session_state.chart_typ = "Linien-Diagramm"
+if 'gewaehlte_metrik' not in st.session_state:
+    st.session_state.gewaehlte_metrik = "Gewicht"
 
 
 # --- HEADER BEREICH ---
@@ -134,36 +136,36 @@ if st.session_state.auswahl_voelker:
                 st.session_state.gewaehlte_metrik = label
                 st.rerun()
 
+
     # --- 2. LAYOUT: LINKS OPTIONEN, RECHTS DIAGRAMM ---
     opt_col1, opt_col2 = st.columns([1, 2])
 
     with opt_col1:
         st.write("#### ⚙️ Anzeige-Optionen")
-        #Zeitraum Auswahl
         zeitraum = st.radio(
             "Zeitraum auswählen:",
             ["Alles anzeigen", "Letzte 30 Tage", "Letzte 7 Tage"]
         )
-        #Diagramm-Typ Auswahl
-        chart_typ = st.radio(
+        
+        # WICHTIG: Wir weisen den Wert direkt dem Session State zu
+        st.radio(
             "Diagramm-Typ:",
-            ["Linien-Diagramm", "Balkendiagramm"]
+            ["Linien-Diagramm", "Balkendiagramm"],
+            key="chart_typ" # Das hier schreibt direkt ins Gedächtnis
         )
 
     with opt_col2:
-        # 1. Daten für das gewählte Volk holen
+        # 1. Daten holen
         volk_df = df[df['Stockname'] == gewaehltes_volk].copy().sort_values("Datum des Eintrags")
         
-        # --- ZEITFILTER ANWENDEN ---
+        # Zeitfilter (Basierend auf Auswahl in opt_col1)
         letztes_datum = volk_df['Datum des Eintrags'].max()
         if zeitraum == "Letzte 30 Tage" and pd.notnull(letztes_datum):
-            stichtag = letztes_datum - pd.Timedelta(days=30)
-            volk_df = volk_df[volk_df['Datum des Eintrags'] >= stichtag]
+            volk_df = volk_df[volk_df['Datum des Eintrags'] >= (letztes_datum - pd.Timedelta(days=30))]
         elif zeitraum == "Letzte 7 Tage" and pd.notnull(letztes_datum):
-            stichtag = letztes_datum - pd.Timedelta(days=7)
-            volk_df = volk_df[volk_df['Datum des Eintrags'] >= stichtag]
+            volk_df = volk_df[volk_df['Datum des Eintrags'] >= (letztes_datum - pd.Timedelta(days=7))]
 
-        # 2. Metrik-Logik
+        # 2. Metrik-Logik (Welche Spalte?)
         y_spalte = "Gewicht"
         if st.session_state.gewaehlte_metrik == "Zunahme/Abnahme":
             volk_df['Gewicht_Diff'] = volk_df['Gewicht'].diff()
@@ -173,41 +175,25 @@ if st.session_state.auswahl_voelker:
         elif st.session_state.gewaehlte_metrik == "Volksstärke":
             y_spalte = "Waben_besetzt"
 
-        # Nur Zeilen mit Werten behalten
         plot_df = volk_df.dropna(subset=[y_spalte])
 
         if not plot_df.empty:
-            # 3. Entscheidung: Welches Diagramm zeichnen?
-            if chart_typ == "Linien-Diagramm":
-                fig = px.line(
-                    plot_df, x='Datum des Eintrags', y=y_spalte,
-                    template="plotly_dark", markers=True
-                )
-                fig.update_traces(
-                    line=dict(color='#FFC107', width=3),
-                    connectgaps=True,
-                    marker=dict(size=8, color='white', line=dict(width=1, color='#FFC107'))
-                )
+            # --- DIE ENTSCHEIDUNG (Absolut sicher über session_state) ---
+            if st.session_state.chart_typ == "Linien-Diagramm":
+                fig = px.line(plot_df, x='Datum des Eintrags', y=y_spalte, template="plotly_dark", markers=True)
+                fig.update_traces(line=dict(color='#FFC107', width=3), connectgaps=True, marker=dict(size=8, color='white'))
             else:
-                # Balkendiagramm
-                fig = px.bar(
-                    plot_df, x='Datum des Eintrags', y=y_spalte,
-                    template="plotly_dark"
-                )
-                # Balken in Bienen-Gelb einfärben
-                fig.update_traces(marker_color='#FFC107', marker_line_color='white', marker_line_width=0.5)
+                fig = px.bar(plot_df, x='Datum des Eintrags', y=y_spalte, template="plotly_dark")
+                fig.update_traces(marker_color='#FFC107')
 
-            # Gemeinsames Layout
             fig.update_layout(
                 xaxis=dict(title="Datum", showgrid=False),
                 yaxis=dict(title=st.session_state.gewaehlte_metrik, gridcolor="rgba(255,255,255,0.1)"),
-                plot_bgcolor="rgba(0,0,0,0)",
-                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
                 hovermode="x unified"
             )
-
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info(f"💡 Keine Daten für **'{st.session_state.gewaehlte_metrik}'** im gewählten Zeitraum vorhanden.")
+            st.info(f"💡 Keine Daten für **'{st.session_state.gewaehlte_metrik}'** vorhanden.")
 else:
     st.info("👆 Bitte wähle oben ein Volk aus, um die Details zu sehen.")
