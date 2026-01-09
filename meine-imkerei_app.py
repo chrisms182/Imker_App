@@ -7,6 +7,9 @@ from datetime import datetime
 st.set_page_config(page_title="Imker-Analyse", layout="wide")
 if 'auswahl_voelker' not in st.session_state:
     st.session_state.auswahl_voelker = []
+def update_chart_type():
+    # Wir holen den Wert vom Radio-Widget und sichern ihn
+    st.session_state.chart_typ = st.session_state.my_chart_radio
 if 'chart_typ' not in st.session_state:
     st.session_state.chart_typ = "Linien-Diagramm"
 if 'gewaehlte_metrik' not in st.session_state:
@@ -142,30 +145,32 @@ if st.session_state.auswahl_voelker:
 
     with opt_col1:
         st.write("#### ⚙️ Anzeige-Optionen")
-        zeitraum = st.radio(
-            "Zeitraum auswählen:",
-            ["Alles anzeigen", "Letzte 30 Tage", "Letzte 7 Tage"]
-        )
-        
-        # WICHTIG: Wir weisen den Wert direkt dem Session State zu
+        zeitraum = st.radio("Zeitraum auswählen:", ["Alles anzeigen", "Letzte 30 Tage", "Letzte 7 Tage"])
+    
+        # Wichtig: Der index sorgt dafür, dass der Punkt da bleibt, wo er ist
         st.radio(
             "Diagramm-Typ:",
             ["Linien-Diagramm", "Balkendiagramm"],
-            key="chart_typ" # Das hier schreibt direkt ins Gedächtnis
+            key="my_chart_radio",
+            on_change=update_chart_type,
+            index=0 if st.session_state.chart_typ == "Linien-Diagramm" else 1
         )
 
+    # JETZT KOMMT opt_col2 (Achte darauf, dass dies bündig mit 'with opt_col1' steht!)
     with opt_col2:
         # 1. Daten holen
         volk_df = df[df['Stockname'] == gewaehltes_volk].copy().sort_values("Datum des Eintrags")
         
-        # Zeitfilter (Basierend auf Auswahl in opt_col1)
+        # Zeitfilter
         letztes_datum = volk_df['Datum des Eintrags'].max()
         if zeitraum == "Letzte 30 Tage" and pd.notnull(letztes_datum):
-            volk_df = volk_df[volk_df['Datum des Eintrags'] >= (letztes_datum - pd.Timedelta(days=30))]
+            stichtag = letztes_datum - pd.Timedelta(days=30)
+            volk_df = volk_df[volk_df['Datum des Eintrags'] >= stichtag]
         elif zeitraum == "Letzte 7 Tage" and pd.notnull(letztes_datum):
-            volk_df = volk_df[volk_df['Datum des Eintrags'] >= (letztes_datum - pd.Timedelta(days=7))]
+            stichtag = letztes_datum - pd.Timedelta(days=7)
+            volk_df = volk_df[volk_df['Datum des Eintrags'] >= stichtag]
 
-        # 2. Metrik-Logik (Welche Spalte?)
+        # 2. Metrik-Logik
         y_spalte = "Gewicht"
         if st.session_state.gewaehlte_metrik == "Zunahme/Abnahme":
             volk_df['Gewicht_Diff'] = volk_df['Gewicht'].diff()
@@ -178,13 +183,18 @@ if st.session_state.auswahl_voelker:
         plot_df = volk_df.dropna(subset=[y_spalte])
 
         if not plot_df.empty:
-            # --- DIE ENTSCHEIDUNG (Absolut sicher über session_state) ---
+            # Entscheidung über session_state.chart_typ
             if st.session_state.chart_typ == "Linien-Diagramm":
                 fig = px.line(plot_df, x='Datum des Eintrags', y=y_spalte, template="plotly_dark", markers=True)
                 fig.update_traces(line=dict(color='#FFC107', width=3), connectgaps=True, marker=dict(size=8, color='white'))
             else:
                 fig = px.bar(plot_df, x='Datum des Eintrags', y=y_spalte, template="plotly_dark")
-                fig.update_traces(marker_color='#FFC107')
+                # Bonus: Wenn Zunahme/Abnahme gewählt, dann Rot/Grün färben
+                if st.session_state.gewaehlte_metrik == "Zunahme/Abnahme":
+                    farben = ['#2ECC71' if x >= 0 else '#E74C3C' for x in plot_df[y_spalte]]
+                    fig.update_traces(marker_color=farben)
+                else:
+                    fig.update_traces(marker_color='#FFC107')
 
             fig.update_layout(
                 xaxis=dict(title="Datum", showgrid=False),
