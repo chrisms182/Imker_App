@@ -4,206 +4,225 @@ import plotly.express as px
 import os
 from datetime import datetime
 
+# --- 1. KONFIGURATION & INITIALISIERUNG ---
 st.set_page_config(page_title="Imker-Analyse", layout="wide")
-if 'auswahl_voelker' not in st.session_state:
-    st.session_state.auswahl_voelker = []
-def update_chart_type():
-    # Wir holen den Wert vom Radio-Widget und sichern ihn
-    st.session_state.chart_typ = st.session_state.my_chart_radio
-if 'chart_typ' not in st.session_state:
-    st.session_state.chart_typ = "Linien-Diagramm"
-if 'gewaehlte_metrik' not in st.session_state:
-    st.session_state.gewaehlte_metrik = "Gewicht"
 
+# Speicher-Variablen
+if 'storage_voelker' not in st.session_state:
+    st.session_state.storage_voelker = []
+if 'storage_chart' not in st.session_state:
+    st.session_state.storage_chart = "Linien-Diagramm" 
+if 'storage_zeit' not in st.session_state:
+    st.session_state.storage_zeit = "Alles anzeigen"   
+if 'storage_metrik' not in st.session_state:
+    st.session_state.storage_metrik = "Gewicht"        
 
-# --- HEADER BEREICH ---
+# --- CALLBACKS ---
+def save_chart_change():
+    st.session_state.storage_chart = st.session_state.widget_chart_key
+
+def save_zeit_change():
+    st.session_state.storage_zeit = st.session_state.widget_zeit_key
+
+# --- 2. HEADER & DATEI-UPLOAD ---
 col1, col2 = st.columns([2, 1], vertical_alignment="bottom")
 with col1:
     st.title("Meine Völker - Auswertung")
-
-    # Datei-Upload
-    uploaded_file = st.file_uploader("Neue KIM-CSV Datei hochladen (überschreibt Basisdatei)", type=["csv"])
-
-    # Datei-Logik
+    uploaded_file = st.file_uploader("Neue KIM-CSV Datei hochladen", type=["csv"])
+    
     DEFAULT_FILE = "daten.csv"
     file_to_load = None
     
-    if uploaded_file is not None:
+    if uploaded_file:
         file_to_load = uploaded_file
-        # Kleiner Hinweis direkt unter dem Uploader
-        st.info(f"ℹ️ Du nutzt gerade eine manuell hochgeladene Datei. ({uploaded_file.name})")
+        st.info(f"ℹ️ Datei: {uploaded_file.name}")
     elif os.path.exists(DEFAULT_FILE):
         file_to_load = DEFAULT_FILE
         ts = os.path.getmtime(DEFAULT_FILE)
-        datum_str = datetime.fromtimestamp(ts).strftime('%d.%m.%Y um %H:%M')
-        st.success(f"✅ Basis-Daten ({DEFAULT_FILE}, Stand: {datum_str} Uhr) geladen.")
+        st.success(f"✅ Basis-Daten geladen (Stand: {datetime.fromtimestamp(ts).strftime('%d.%m.%Y %H:%M')})")
     else:
-        st.info("ℹ️ Keine Daten gefunden. Bitte CSV hochladen.")
+        st.info("ℹ️ Bitte CSV hochladen.")
 
 with col2:
     st.image("BienenLogo.jpg", use_container_width=True)
 
-
-# --- Verarbeitung ---
+# --- 3. DATEN LADEN (ROBUST & INTELLIGENT V2) ---
 if file_to_load:
-    # 1. Daten einlesen mit Fehler-Toleranz
-    df = None # Initialisierung
-    try:
-        df = pd.read_csv(file_to_load, sep=None, engine='python', encoding='latin-1')
-    except Exception:
-        try:
-            df = pd.read_csv(file_to_load, sep=None, engine='python', encoding='utf-8')
-        except Exception as e:
-            st.error(f"❌ Die Datei konnte nicht gelesen werden: {e}")
+    df = None
+    erfolgreich_gelesen = False
     
-    # Der "Sauberkeits"-Check
-    if df is not None:
-        # Wir suchen die Spalten, die "Milben" oder "Waben" enthalten und geben ihnen einfache Namen
-        for col in df.columns:
-            if "Milben" in col:
-                df = df.rename(columns={col: "Milben"})
-            if "Besetzte Waben" in col or ("Waben" in col and "Besetz" in col):
-                df = df.rename(columns={col: "Waben_besetzt"})
-        # Datum konvertieren und bereinigen
-        df['Datum des Eintrags'] = pd.to_datetime(df['Datum des Eintrags'], dayfirst=True, errors='coerce')
-        df = df.dropna(subset=['Datum des Eintrags', 'Stockname'])    
+    # Alle Kombinationen durchprobieren
+    versuche = [(';', 'latin-1'), (',', 'latin-1'), (';', 'utf-8'), (',', 'utf-8')]
+    
+    for trenner, encoding in versuche:
+        try:
+            if hasattr(file_to_load, 'seek'): file_to_load.seek(0)
+            temp_df = pd.read_csv(file_to_load, sep=trenner, encoding=encoding)
+            if len(temp_df.columns) > 1:
+                df = temp_df
+                erfolgreich_gelesen = True
+                break 
+        except Exception:
+            continue
+
+    if erfolgreich_gelesen and df is not None:
+        try:
+            df.columns = df.columns.str.strip()
+            rename_map = {}
+            for col in df.columns:
+                if "Milben" in col: rename_map[col] = "Milben"
+                if "Besetzte Waben" in col: rename_map[col] = "Waben_besetzt"
+            df = df.rename(columns=rename_map)
+            
+            if 'Datum des Eintrags' not in df.columns:
+                st.error(f"❌ Fehler: Spalte 'Datum des Eintrags' fehlt.")
+                st.stop()
+
+            df['Datum des Eintrags'] = pd.to_datetime(df['Datum des Eintrags'], dayfirst=True, errors='coerce')
+            df = df.dropna(subset=['Datum des Eintrags', 'Stockname'])
+            
+        except Exception as e:
+            st.error(f"❌ Fehler bei der Verarbeitung: {e}")
+            st.stop()
     else:
-        st.error("⚠️ Fehler: Es konnten keine Daten aus der Datei extrahiert werden.")
-        st.stop() # Stoppt die App hier, damit keine Folgefehler kommen
+        st.error("❌ Die Datei konnte nicht gelesen werden.")
+        st.stop()
 else:
-    st.info("💡 Bitte lade eine CSV-Datei hoch, um mit der Analyse zu beginnen.")
     st.stop()
 
-
-# --- Völkerauswahl mit "Gedrückt"-Effekt & Abwahl ---
+# --- 4. VÖLKERAUSWAHL ---
 st.write("### Schnellzugriff Völker")
 alle_voelker = sorted(df['Stockname'].unique())
+cols = st.columns(10)
 
-spalten_pro_reihe = 10
-for i in range(0, len(alle_voelker), spalten_pro_reihe):
-    aktuelle_auswahl = alle_voelker[i : i + spalten_pro_reihe]
-    cols = st.columns(spalten_pro_reihe)
-    
-    for j, volk_name in enumerate(aktuelle_auswahl):
-        with cols[j]:
-            # 1. Prüfen: Ist dieses Volk gerade das ausgewählte?
-            ist_aktiv = (st.session_state.auswahl_voelker == [volk_name])
-            
-            # 2. Optik anpassen: Primary-Farbe (Gelb) wenn aktiv, sonst normal
-            st.image("VolkLogo.jpg", use_container_width=True)
-            
-            if st.button(
-                volk_name, 
-                key=f"btn_{volk_name}", 
-                use_container_width=True, 
-                type="primary" if ist_aktiv else "secondary"
-            ):
-                # 3. Logik beim Klicken:
-                if ist_aktiv:
-                    # Wenn es schon aktiv war -> abwählen
-                    st.session_state.auswahl_voelker = []
-                else:
-                    # Wenn es nicht aktiv war -> dieses Volk wählen
-                    st.session_state.auswahl_voelker = [volk_name]
-                
-                # Seite neu laden, um die Farben und Diagramme sofort zu ändern
-                st.rerun()
+for i, volk_name in enumerate(alle_voelker):
+    with cols[i % 10]:
+        ist_aktiv = (st.session_state.storage_voelker == [volk_name])
+        st.image("VolkLogo.jpg", use_container_width=True)
+        if st.button(volk_name, key=f"btn_{volk_name}", use_container_width=True, type="primary" if ist_aktiv else "secondary"):
+            st.session_state.storage_voelker = [] if ist_aktiv else [volk_name]
+            st.rerun()
 
-
-# OPTIONEN & DIAGRAMM (Nur anzeigen, wenn ein Volk gewählt wurde)
-if st.session_state.auswahl_voelker:
-    gewaehltes_volk = st.session_state.auswahl_voelker[0]
-    
-    st.divider() 
+# --- 5. ANALYSE BEREICH ---
+if st.session_state.storage_voelker:
+    gewaehltes_volk = st.session_state.storage_voelker[0]
+    st.divider()
     st.subheader(f"Analyse für: {gewaehltes_volk}")
 
-    # --- 1. NEU: METRIK-AUSWAHL BUTTONS ---
-    st.write("#### 📊 Welche Werte möchtest du analysieren?")
-    
-    metriken = {
-        "Gewicht": "Gewicht",
-        "Zunahme/Abnahme": "Gewicht_Diff",
-        "Varroa": "Milben",
-        "Volksstärke": "Waben_besetzt"
-    }
+    # --- METRIK BUTTONS ---
+    metriken = {"Gewicht": "Gewicht", "Zunahme/Abnahme": "Gewicht_Diff", "Varroa": "Milben", "Volksstärke": "Waben_besetzt"}
+    m_cols = st.columns(4)
+    for i, label in enumerate(metriken.keys()):
+        aktiv = (st.session_state.storage_metrik == label)
+        if m_cols[i].button(label, key=f"m_{label}", use_container_width=True, type="primary" if aktiv else "secondary"):
+            st.session_state.storage_metrik = label
+            st.rerun()
 
-    if 'gewaehlte_metrik' not in st.session_state:
-        st.session_state.gewaehlte_metrik = "Gewicht"
-
-    m_cols = st.columns(4) # Wir nehmen fest 4 Spalten für die 4 Metriken
-    for i, (label, spalte) in enumerate(metriken.items()):
-        with m_cols[i]:
-            ist_metrik_aktiv = (st.session_state.gewaehlte_metrik == label)
-            if st.button(label, key=f"m_{label}", use_container_width=True, 
-                         type="primary" if ist_metrik_aktiv else "secondary"):
-                st.session_state.gewaehlte_metrik = label
-                st.rerun()
-
-
-    # --- 2. LAYOUT: LINKS OPTIONEN, RECHTS DIAGRAMM ---
+    # --- OPTIONEN & GRAPH ---
     opt_col1, opt_col2 = st.columns([1, 2])
 
     with opt_col1:
-        st.write("#### ⚙️ Anzeige-Optionen")
-        zeitraum = st.radio("Zeitraum auswählen:", ["Alles anzeigen", "Letzte 30 Tage", "Letzte 7 Tage"])
-    
-        # Wichtig: Der index sorgt dafür, dass der Punkt da bleibt, wo er ist
+        st.write("#### ⚙️ Optionen")
+        
+        # NEU: Erweiterte Liste mit Zeiträumen
+        z_opts = [
+            "Alles anzeigen", 
+            "Dieses Jahr", 
+            "Letzte 6 Monate", 
+            "Letzte 3 Monate", 
+            "Letzte 30 Tage", 
+            "Letzte 14 Tage", 
+            "Letzte 7 Tage"
+        ]
+        
+        try:
+            z_index = z_opts.index(st.session_state.storage_zeit)
+        except ValueError:
+            z_index = 0
+            
         st.radio(
-            "Diagramm-Typ:",
-            ["Linien-Diagramm", "Balkendiagramm"],
-            key="my_chart_radio",
-            on_change=update_chart_type,
-            index=0 if st.session_state.chart_typ == "Linien-Diagramm" else 1
+            "Zeitraum auswählen:", 
+            z_opts, 
+            index=z_index,
+            key="widget_zeit_key",
+            on_change=save_zeit_change
+        )
+        
+        c_opts = ["Linien-Diagramm", "Balkendiagramm"]
+        try:
+            c_index = c_opts.index(st.session_state.storage_chart)
+        except ValueError:
+            c_index = 0
+            
+        st.radio(
+            "Diagramm-Typ:", 
+            c_opts, 
+            index=c_index,
+            key="widget_chart_key",
+            on_change=save_chart_change
         )
 
-    # JETZT KOMMT opt_col2 (Achte darauf, dass dies bündig mit 'with opt_col1' steht!)
     with opt_col2:
-        # 1. Daten holen
+        # Daten filtern
         volk_df = df[df['Stockname'] == gewaehltes_volk].copy().sort_values("Datum des Eintrags")
-        
-        # Zeitfilter
-        letztes_datum = volk_df['Datum des Eintrags'].max()
-        if zeitraum == "Letzte 30 Tage" and pd.notnull(letztes_datum):
-            stichtag = letztes_datum - pd.Timedelta(days=30)
-            volk_df = volk_df[volk_df['Datum des Eintrags'] >= stichtag]
-        elif zeitraum == "Letzte 7 Tage" and pd.notnull(letztes_datum):
-            stichtag = letztes_datum - pd.Timedelta(days=7)
-            volk_df = volk_df[volk_df['Datum des Eintrags'] >= stichtag]
+        heute = pd.Timestamp.now().normalize()
 
-        # 2. Metrik-Logik
+        # NEU: Erweiterte Filter-Logik
+        auswahl = st.session_state.storage_zeit
+        
+        if auswahl == "Dieses Jahr":
+            # Filtert alles, was im aktuellen Jahr (z.B. 2026) liegt
+            volk_df = volk_df[volk_df['Datum des Eintrags'].dt.year == heute.year]
+        elif auswahl == "Letzte 6 Monate":
+            volk_df = volk_df[volk_df['Datum des Eintrags'] >= (heute - pd.Timedelta(days=180))]
+        elif auswahl == "Letzte 3 Monate":
+            volk_df = volk_df[volk_df['Datum des Eintrags'] >= (heute - pd.Timedelta(days=90))]
+        elif auswahl == "Letzte 30 Tage":
+            volk_df = volk_df[volk_df['Datum des Eintrags'] >= (heute - pd.Timedelta(days=30))]
+        elif auswahl == "Letzte 14 Tage":
+            volk_df = volk_df[volk_df['Datum des Eintrags'] >= (heute - pd.Timedelta(days=14))]
+        elif auswahl == "Letzte 7 Tage":
+            volk_df = volk_df[volk_df['Datum des Eintrags'] >= (heute - pd.Timedelta(days=7))]
+        # Bei "Alles anzeigen" passiert einfach nichts (kein Filter)
+
+        # Y-Achse bestimmen
         y_spalte = "Gewicht"
-        if st.session_state.gewaehlte_metrik == "Zunahme/Abnahme":
+        metrik = st.session_state.storage_metrik
+        
+        if metrik == "Zunahme/Abnahme":
             volk_df['Gewicht_Diff'] = volk_df['Gewicht'].diff()
             y_spalte = "Gewicht_Diff"
-        elif st.session_state.gewaehlte_metrik == "Varroa":
+        elif metrik == "Varroa":
             y_spalte = "Milben"
-        elif st.session_state.gewaehlte_metrik == "Volksstärke":
+        elif metrik == "Volksstärke":
             y_spalte = "Waben_besetzt"
 
         plot_df = volk_df.dropna(subset=[y_spalte])
 
+        # Plotten
         if not plot_df.empty:
-            # Entscheidung über session_state.chart_typ
-            if st.session_state.chart_typ == "Linien-Diagramm":
+            chart_typ = st.session_state.storage_chart
+            
+            if chart_typ == "Linien-Diagramm":
                 fig = px.line(plot_df, x='Datum des Eintrags', y=y_spalte, template="plotly_dark", markers=True)
                 fig.update_traces(line=dict(color='#FFC107', width=3), connectgaps=True, marker=dict(size=8, color='white'))
             else:
                 fig = px.bar(plot_df, x='Datum des Eintrags', y=y_spalte, template="plotly_dark")
-                # Bonus: Wenn Zunahme/Abnahme gewählt, dann Rot/Grün färben
-                if st.session_state.gewaehlte_metrik == "Zunahme/Abnahme":
-                    farben = ['#2ECC71' if x >= 0 else '#E74C3C' for x in plot_df[y_spalte]]
-                    fig.update_traces(marker_color=farben)
+                if metrik == "Zunahme/Abnahme":
+                    fig.update_traces(marker_color=['#2ECC71' if x >= 0 else '#E74C3C' for x in plot_df[y_spalte]])
                 else:
                     fig.update_traces(marker_color='#FFC107')
 
             fig.update_layout(
                 xaxis=dict(title="Datum", showgrid=False),
-                yaxis=dict(title=st.session_state.gewaehlte_metrik, gridcolor="rgba(255,255,255,0.1)"),
-                plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-                hovermode="x unified"
+                yaxis=dict(title=metrik, gridcolor="rgba(255,255,255,0.1)"),
+                plot_bgcolor="rgba(0,0,0,0)", 
+                paper_bgcolor="rgba(0,0,0,0)",
+                hovermode="x unified",
+                bargap=0.2
             )
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info(f"💡 Keine Daten für **'{st.session_state.gewaehlte_metrik}'** vorhanden.")
+            st.info(f"💡 Keine Daten für **'{metrik}'** im gewählten Zeitraum.")
 else:
-    st.info("👆 Bitte wähle oben ein Volk aus, um die Details zu sehen.")
+    st.info("👆 Bitte wähle oben ein Volk aus.")
