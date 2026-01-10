@@ -120,7 +120,7 @@ if st.session_state.storage_voelker:
             st.rerun()
 
     # --- OPTIONEN & GRAPH ---
-    opt_col1, opt_col2 = st.columns([1, 2])
+    opt_col1, opt_col2 = st.columns([1, 3])
 
     with opt_col1:
         st.write("#### ⚙️ Optionen")
@@ -215,3 +215,4 @@ if st.session_state.storage_voelker:
             st.info(f"💡 Keine Daten für **'{metrik}'** im gewählten Zeitraum.")
 else:
     st.info("👆 Bitte wähle oben ein Volk aus.")
+
