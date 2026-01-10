@@ -13,7 +13,7 @@ if 'storage_voelker' not in st.session_state:
 if 'storage_chart' not in st.session_state:
     st.session_state.storage_chart = "Linien-Diagramm" 
 if 'storage_zeit' not in st.session_state:
-    st.session_state.storage_zeit = "Alles anzeigen"   
+    st.session_state.storage_zeit = "Dieses Jahr"   
 if 'storage_metrik' not in st.session_state:
     st.session_state.storage_metrik = "Gewicht"        
 
@@ -51,7 +51,6 @@ if file_to_load:
     df = None
     erfolgreich_gelesen = False
     
-    # Alle Kombinationen durchprobieren
     versuche = [(';', 'latin-1'), (',', 'latin-1'), (';', 'utf-8'), (',', 'utf-8')]
     
     for trenner, encoding in versuche:
@@ -106,8 +105,10 @@ for i, volk_name in enumerate(alle_voelker):
 # --- 5. ANALYSE BEREICH ---
 if st.session_state.storage_voelker:
     gewaehltes_volk = st.session_state.storage_voelker[0]
-    st.divider()
-    st.subheader(f"Analyse für: {gewaehltes_volk}")
+    st.markdown("""
+        <hr style='margin: 5px 0; border: none; border-top: 1px solid rgba(255,255,255,0.2);'>
+    """, unsafe_allow_html=True)
+
 
     # --- METRIK BUTTONS ---
     metriken = {"Gewicht": "Gewicht", "Zunahme/Abnahme": "Gewicht_Diff", "Varroa": "Milben", "Volksstärke": "Waben_besetzt"}
@@ -124,54 +125,28 @@ if st.session_state.storage_voelker:
     with opt_col1:
         st.write("#### ⚙️ Optionen")
         
-        # NEU: Erweiterte Liste mit Zeiträumen
         z_opts = [
-            "Alles anzeigen", 
-            "Dieses Jahr", 
-            "Letzte 6 Monate", 
-            "Letzte 3 Monate", 
-            "Letzte 30 Tage", 
-            "Letzte 14 Tage", 
-            "Letzte 7 Tage"
+            "Alles anzeigen", "Dieses Jahr", "Letzte 6 Monate", 
+            "Letzte 3 Monate", "Letzte 30 Tage", "Letzte 14 Tage", "Letzte 7 Tage"
         ]
-        
-        try:
-            z_index = z_opts.index(st.session_state.storage_zeit)
-        except ValueError:
-            z_index = 0
+        try: z_index = z_opts.index(st.session_state.storage_zeit)
+        except ValueError: z_index = 0
             
-        st.radio(
-            "Zeitraum auswählen:", 
-            z_opts, 
-            index=z_index,
-            key="widget_zeit_key",
-            on_change=save_zeit_change
-        )
+        st.radio("Zeitraum auswählen:", z_opts, index=z_index, key="widget_zeit_key", on_change=save_zeit_change)
         
         c_opts = ["Linien-Diagramm", "Balkendiagramm"]
-        try:
-            c_index = c_opts.index(st.session_state.storage_chart)
-        except ValueError:
-            c_index = 0
+        try: c_index = c_opts.index(st.session_state.storage_chart)
+        except ValueError: c_index = 0
             
-        st.radio(
-            "Diagramm-Typ:", 
-            c_opts, 
-            index=c_index,
-            key="widget_chart_key",
-            on_change=save_chart_change
-        )
+        st.radio("Diagramm-Typ:", c_opts, index=c_index, key="widget_chart_key", on_change=save_chart_change)
 
     with opt_col2:
         # Daten filtern
         volk_df = df[df['Stockname'] == gewaehltes_volk].copy().sort_values("Datum des Eintrags")
         heute = pd.Timestamp.now().normalize()
 
-        # NEU: Erweiterte Filter-Logik
         auswahl = st.session_state.storage_zeit
-        
         if auswahl == "Dieses Jahr":
-            # Filtert alles, was im aktuellen Jahr (z.B. 2026) liegt
             volk_df = volk_df[volk_df['Datum des Eintrags'].dt.year == heute.year]
         elif auswahl == "Letzte 6 Monate":
             volk_df = volk_df[volk_df['Datum des Eintrags'] >= (heute - pd.Timedelta(days=180))]
@@ -183,7 +158,6 @@ if st.session_state.storage_voelker:
             volk_df = volk_df[volk_df['Datum des Eintrags'] >= (heute - pd.Timedelta(days=14))]
         elif auswahl == "Letzte 7 Tage":
             volk_df = volk_df[volk_df['Datum des Eintrags'] >= (heute - pd.Timedelta(days=7))]
-        # Bei "Alles anzeigen" passiert einfach nichts (kein Filter)
 
         # Y-Achse bestimmen
         y_spalte = "Gewicht"
@@ -203,23 +177,38 @@ if st.session_state.storage_voelker:
         if not plot_df.empty:
             chart_typ = st.session_state.storage_chart
             
+            # --- STYLING VARIIABLEN ---
+            # HIER IST DIE ÄNDERUNG:
+            # Wir haben die Breite von 20 Stunden auf 36 Stunden erhöht (1.5 Tage)
+            # Das macht die Balken fast doppelt so dick.
+            balken_breite = 1000 * 60 * 60 * 36 
+
             if chart_typ == "Linien-Diagramm":
                 fig = px.line(plot_df, x='Datum des Eintrags', y=y_spalte, template="plotly_dark", markers=True)
-                fig.update_traces(line=dict(color='#FFC107', width=3), connectgaps=True, marker=dict(size=8, color='white'))
+                fig.update_traces(
+                    line=dict(color='#FFC107', width=3),
+                    marker=dict(size=8, color='#FFC107', line=dict(width=1, color='white')),
+                    fill='tozeroy', 
+                    fillcolor='rgba(255, 193, 7, 0.1)'
+                )
             else:
                 fig = px.bar(plot_df, x='Datum des Eintrags', y=y_spalte, template="plotly_dark")
+                
+                # Farbenlogik
                 if metrik == "Zunahme/Abnahme":
-                    fig.update_traces(marker_color=['#2ECC71' if x >= 0 else '#E74C3C' for x in plot_df[y_spalte]])
+                    farben = ['#2ECC71' if x >= 0 else '#E74C3C' for x in plot_df[y_spalte]]
+                    fig.update_traces(marker_color=farben, marker_line_width=0, width=balken_breite)
                 else:
-                    fig.update_traces(marker_color='#FFC107')
+                    fig.update_traces(marker_color='#FFC107', marker_line_width=0, width=balken_breite)
 
             fig.update_layout(
-                xaxis=dict(title="Datum", showgrid=False),
-                yaxis=dict(title=metrik, gridcolor="rgba(255,255,255,0.1)"),
+                xaxis=dict(title="Datum", showgrid=False, zeroline=False),
+                yaxis=dict(title=metrik, gridcolor="rgba(255,255,255,0.1)", zerolinecolor="rgba(255,255,255,0.2)"),
                 plot_bgcolor="rgba(0,0,0,0)", 
                 paper_bgcolor="rgba(0,0,0,0)",
                 hovermode="x unified",
-                bargap=0.2
+                margin=dict(l=0, r=0, t=10, b=0),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
             )
             st.plotly_chart(fig, use_container_width=True)
         else:
