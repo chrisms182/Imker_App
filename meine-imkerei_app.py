@@ -17,18 +17,14 @@ if 'storage_zeit' not in st.session_state:
 if 'storage_metrik' not in st.session_state:
     st.session_state.storage_metrik = "Gewicht"        
 
-# --- NEU: BARRIEREFREIE FARBPALETTE (Okabe-Ito) ---
-FARB_PAARE = [
-    ('#0072B2', '🔵'), # Kräftiges Blau
-    ('#E69F00', '🟠'), # Orange
-    ('#F0E442', '🟡'), # Gelb
+# --- NEU: FARBENBLIND-FREUNDLICHER POOL (Okabe-Ito Subset) ---
+# Keine Rot/Grün-Konflikte. Perfekter Kontrast.
+FARB_POOL = [
+    ('#0072B2', '🔵'), # Blau (Stark)
+    ('#E69F00', '🟠'), # Orange (Perfekter Kontrast zu Blau)
+    ('#F0E442', '🟡'), # Gelb (Sehr gut sichtbar auf Dunkel)
+    ('#CC79A7', '🟣'), # Rötliches Lila / Pink
     ('#56B4E9', '🧊'), # Himmelblau
-    ('#CC79A7', '🟣'), # Lila
-    ('#009E73', '🌲'), # Blau-Grün
-    ('#D55E00', '🔥'), # Zinnoberrot
-    ('#999999', '⚪'), # Grau
-    ('#F5C710', '🌟'), # Gold
-    ('#332288', '🌑')  # Indigo
 ]
 
 # --- CALLBACKS ---
@@ -103,16 +99,20 @@ if file_to_load:
 else:
     st.stop()
 
-# --- 4. VÖLKERAUSWAHL ---
-st.write("### Überischt Völker")
-alle_voelker = sorted(df['Stockname'].unique())
-color_map = {}
-emoji_map = {}
+# --- 4. VÖLKERAUSWAHL (DYNAMISCHE FARBEN) ---
+st.write("### Schnellzugriff Völker")
+st.caption("Barrierefreie Farben: Blau, Orange, Gelb, Lila, Hellblau.")
 
-for index, volk_name in enumerate(alle_voelker):
-    farb_code, icon = FARB_PAARE[index % len(FARB_PAARE)]
-    color_map[volk_name] = farb_code
-    emoji_map[volk_name] = icon
+alle_voelker = sorted(df['Stockname'].unique())
+
+active_color_map = {}
+active_emoji_map = {}
+
+# Zuerst weisen wir den AKTIVEN Völkern ihre Farben zu
+for idx, v_name in enumerate(st.session_state.storage_voelker):
+    farb_code, icon = FARB_POOL[idx % len(FARB_POOL)]
+    active_color_map[v_name] = farb_code
+    active_emoji_map[v_name] = icon
 
 cols = st.columns(10)
 
@@ -120,7 +120,11 @@ for i, volk_name in enumerate(alle_voelker):
     with cols[i % 10]:
         ist_aktiv = (volk_name in st.session_state.storage_voelker)
         st.image("VolkLogo.jpg", use_container_width=True)
-        button_label = f"{emoji_map[volk_name]} {volk_name}"
+        
+        if ist_aktiv:
+            button_label = f"{active_emoji_map[volk_name]} {volk_name}"
+        else:
+            button_label = volk_name
         
         if st.button(button_label, key=f"btn_{volk_name}", use_container_width=True, type="primary" if ist_aktiv else "secondary"):
             if ist_aktiv:
@@ -131,10 +135,11 @@ for i, volk_name in enumerate(alle_voelker):
 
 # --- 5. ANALYSE BEREICH ---
 if st.session_state.storage_voelker:
-    titel_liste = [f"{emoji_map[v]} {v}" for v in st.session_state.storage_voelker]
+    titel_liste = [f"{active_emoji_map[v]} {v}" for v in st.session_state.storage_voelker]
     namen_string = ", ".join(titel_liste)
     
     st.markdown("<hr style='margin: 5px 0; border: none; border-top: 1px solid rgba(255,255,255,0.2);'>", unsafe_allow_html=True)
+    st.subheader(f"Vergleich: {namen_string}")
 
     # --- METRIK BUTTONS ---
     metriken = {"Gewicht": "Gewicht", "Zunahme/Abnahme": "Gewicht_Diff", "Varroa": "Milben", "Volksstärke": "Waben_besetzt"}
@@ -196,15 +201,12 @@ if st.session_state.storage_voelker:
 
         plot_df = plot_df.dropna(subset=[y_spalte])
 
-        # --- NEU: HINWEIS WENN DATEN FEHLEN ---
-        # Wir prüfen: Welche Völker habe ich angeklickt vs. Welche sind noch im plot_df übrig?
+        # HINWEIS WENN DATEN FEHLEN
         if not plot_df.empty:
             vorhandene_im_plot = plot_df['Stockname'].unique()
             fehlende = [v for v in aktuelle_voelker if v not in vorhandene_im_plot]
-            
             if fehlende:
-                # Wir bauen eine schöne Liste mit den Icons
-                fehlende_labels = [f"**{emoji_map[v]} {v}**" for v in fehlende]
+                fehlende_labels = [f"**{active_emoji_map[v]} {v}**" for v in fehlende]
                 st.warning(f"⚠️ Keine Daten für {metrik} im gewählten Zeitraum: {', '.join(fehlende_labels)}")
 
         # 4. Plotten
@@ -217,7 +219,7 @@ if st.session_state.storage_voelker:
                     x='Datum des Eintrags', 
                     y=y_spalte, 
                     color='Stockname', 
-                    color_discrete_map=color_map, 
+                    color_discrete_map=active_color_map, 
                     template="plotly_dark", 
                     markers=True
                 )
@@ -231,7 +233,7 @@ if st.session_state.storage_voelker:
                     x='Datum des Eintrags', 
                     y=y_spalte, 
                     color='Stockname', 
-                    color_discrete_map=color_map, 
+                    color_discrete_map=active_color_map, 
                     barmode='group',
                     template="plotly_dark"
                 )
