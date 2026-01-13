@@ -11,11 +11,25 @@ st.set_page_config(page_title="Imker-Analyse", layout="wide")
 if 'storage_voelker' not in st.session_state:
     st.session_state.storage_voelker = []
 if 'storage_chart' not in st.session_state:
-    st.session_state.storage_chart = "Linien-Diagramm" 
+    st.session_state.storage_chart = "Balkendiagramm" 
 if 'storage_zeit' not in st.session_state:
-    st.session_state.storage_zeit = "Dieses Jahr"   
+    st.session_state.storage_zeit = "Letzte 30 Tage"   
 if 'storage_metrik' not in st.session_state:
     st.session_state.storage_metrik = "Gewicht"        
+
+# --- NEU: BARRIEREFREIE FARBPALETTE (Okabe-Ito) ---
+FARB_PAARE = [
+    ('#0072B2', '🔵'), # Kräftiges Blau
+    ('#E69F00', '🟠'), # Orange
+    ('#F0E442', '🟡'), # Gelb
+    ('#56B4E9', '🧊'), # Himmelblau
+    ('#CC79A7', '🟣'), # Lila
+    ('#009E73', '🌲'), # Blau-Grün
+    ('#D55E00', '🔥'), # Zinnoberrot
+    ('#999999', '⚪'), # Grau
+    ('#F5C710', '🌟'), # Gold
+    ('#332288', '🌑')  # Indigo
+]
 
 # --- CALLBACKS ---
 def save_chart_change():
@@ -46,7 +60,7 @@ with col1:
 with col2:
     st.image("BienenLogo.jpg", use_container_width=True)
 
-# --- 3. DATEN LADEN (ROBUST & INTELLIGENT V2) ---
+# --- 3. DATEN LADEN ---
 if file_to_load:
     df = None
     erfolgreich_gelesen = False
@@ -90,25 +104,37 @@ else:
     st.stop()
 
 # --- 4. VÖLKERAUSWAHL ---
-st.write("### Schnellzugriff Völker")
+st.write("### Überischt Völker")
 alle_voelker = sorted(df['Stockname'].unique())
+color_map = {}
+emoji_map = {}
+
+for index, volk_name in enumerate(alle_voelker):
+    farb_code, icon = FARB_PAARE[index % len(FARB_PAARE)]
+    color_map[volk_name] = farb_code
+    emoji_map[volk_name] = icon
+
 cols = st.columns(10)
 
 for i, volk_name in enumerate(alle_voelker):
     with cols[i % 10]:
-        ist_aktiv = (st.session_state.storage_voelker == [volk_name])
+        ist_aktiv = (volk_name in st.session_state.storage_voelker)
         st.image("VolkLogo.jpg", use_container_width=True)
-        if st.button(volk_name, key=f"btn_{volk_name}", use_container_width=True, type="primary" if ist_aktiv else "secondary"):
-            st.session_state.storage_voelker = [] if ist_aktiv else [volk_name]
+        button_label = f"{emoji_map[volk_name]} {volk_name}"
+        
+        if st.button(button_label, key=f"btn_{volk_name}", use_container_width=True, type="primary" if ist_aktiv else "secondary"):
+            if ist_aktiv:
+                st.session_state.storage_voelker.remove(volk_name)
+            else:
+                st.session_state.storage_voelker.append(volk_name)
             st.rerun()
 
 # --- 5. ANALYSE BEREICH ---
 if st.session_state.storage_voelker:
-    gewaehltes_volk = st.session_state.storage_voelker[0]
-    st.markdown("""
-        <hr style='margin: 5px 0; border: none; border-top: 1px solid rgba(255,255,255,0.2);'>
-    """, unsafe_allow_html=True)
-
+    titel_liste = [f"{emoji_map[v]} {v}" for v in st.session_state.storage_voelker]
+    namen_string = ", ".join(titel_liste)
+    
+    st.markdown("<hr style='margin: 5px 0; border: none; border-top: 1px solid rgba(255,255,255,0.2);'>", unsafe_allow_html=True)
 
     # --- METRIK BUTTONS ---
     metriken = {"Gewicht": "Gewicht", "Zunahme/Abnahme": "Gewicht_Diff", "Varroa": "Milben", "Volksstärke": "Waben_besetzt"}
@@ -120,86 +146,96 @@ if st.session_state.storage_voelker:
             st.rerun()
 
     # --- OPTIONEN & GRAPH ---
-    opt_col1, opt_col2 = st.columns([1, 3])
+    opt_col1, opt_col2 = st.columns([1, 2])
 
     with opt_col1:
         st.write("#### ⚙️ Optionen")
         
-        z_opts = [
-            "Alles anzeigen", "Dieses Jahr", "Letzte 6 Monate", 
-            "Letzte 3 Monate", "Letzte 30 Tage", "Letzte 14 Tage", "Letzte 7 Tage"
-        ]
+        z_opts = ["Alles anzeigen", "Dieses Jahr", "Letzte 6 Monate", "Letzte 3 Monate", "Letzte 30 Tage", "Letzte 14 Tage", "Letzte 7 Tage"]
         try: z_index = z_opts.index(st.session_state.storage_zeit)
         except ValueError: z_index = 0
-            
         st.radio("Zeitraum auswählen:", z_opts, index=z_index, key="widget_zeit_key", on_change=save_zeit_change)
         
         c_opts = ["Linien-Diagramm", "Balkendiagramm"]
         try: c_index = c_opts.index(st.session_state.storage_chart)
         except ValueError: c_index = 0
-            
         st.radio("Diagramm-Typ:", c_opts, index=c_index, key="widget_chart_key", on_change=save_chart_change)
 
     with opt_col2:
-        # Daten filtern
-        volk_df = df[df['Stockname'] == gewaehltes_volk].copy().sort_values("Datum des Eintrags")
+        # 1. Daten filtern
+        aktuelle_voelker = st.session_state.storage_voelker
+        plot_df = df[df['Stockname'].isin(aktuelle_voelker)].copy().sort_values("Datum des Eintrags")
         heute = pd.Timestamp.now().normalize()
 
+        # 2. Zeitfilter
         auswahl = st.session_state.storage_zeit
         if auswahl == "Dieses Jahr":
-            volk_df = volk_df[volk_df['Datum des Eintrags'].dt.year == heute.year]
+            plot_df = plot_df[plot_df['Datum des Eintrags'].dt.year == heute.year]
         elif auswahl == "Letzte 6 Monate":
-            volk_df = volk_df[volk_df['Datum des Eintrags'] >= (heute - pd.Timedelta(days=180))]
+            plot_df = plot_df[plot_df['Datum des Eintrags'] >= (heute - pd.Timedelta(days=180))]
         elif auswahl == "Letzte 3 Monate":
-            volk_df = volk_df[volk_df['Datum des Eintrags'] >= (heute - pd.Timedelta(days=90))]
+            plot_df = plot_df[plot_df['Datum des Eintrags'] >= (heute - pd.Timedelta(days=90))]
         elif auswahl == "Letzte 30 Tage":
-            volk_df = volk_df[volk_df['Datum des Eintrags'] >= (heute - pd.Timedelta(days=30))]
+            plot_df = plot_df[plot_df['Datum des Eintrags'] >= (heute - pd.Timedelta(days=30))]
         elif auswahl == "Letzte 14 Tage":
-            volk_df = volk_df[volk_df['Datum des Eintrags'] >= (heute - pd.Timedelta(days=14))]
+            plot_df = plot_df[plot_df['Datum des Eintrags'] >= (heute - pd.Timedelta(days=14))]
         elif auswahl == "Letzte 7 Tage":
-            volk_df = volk_df[volk_df['Datum des Eintrags'] >= (heute - pd.Timedelta(days=7))]
+            plot_df = plot_df[plot_df['Datum des Eintrags'] >= (heute - pd.Timedelta(days=7))]
 
-        # Y-Achse bestimmen
+        # 3. Y-Achse
         y_spalte = "Gewicht"
         metrik = st.session_state.storage_metrik
         
         if metrik == "Zunahme/Abnahme":
-            volk_df['Gewicht_Diff'] = volk_df['Gewicht'].diff()
+            plot_df['Gewicht_Diff'] = plot_df.groupby('Stockname')['Gewicht'].diff()
             y_spalte = "Gewicht_Diff"
         elif metrik == "Varroa":
             y_spalte = "Milben"
         elif metrik == "Volksstärke":
             y_spalte = "Waben_besetzt"
 
-        plot_df = volk_df.dropna(subset=[y_spalte])
+        plot_df = plot_df.dropna(subset=[y_spalte])
 
-        # Plotten
+        # --- NEU: HINWEIS WENN DATEN FEHLEN ---
+        # Wir prüfen: Welche Völker habe ich angeklickt vs. Welche sind noch im plot_df übrig?
+        if not plot_df.empty:
+            vorhandene_im_plot = plot_df['Stockname'].unique()
+            fehlende = [v for v in aktuelle_voelker if v not in vorhandene_im_plot]
+            
+            if fehlende:
+                # Wir bauen eine schöne Liste mit den Icons
+                fehlende_labels = [f"**{emoji_map[v]} {v}**" for v in fehlende]
+                st.warning(f"⚠️ Keine Daten für {metrik} im gewählten Zeitraum: {', '.join(fehlende_labels)}")
+
+        # 4. Plotten
         if not plot_df.empty:
             chart_typ = st.session_state.storage_chart
             
-            # --- STYLING VARIIABLEN ---
-            # HIER IST DIE ÄNDERUNG:
-            # Wir haben die Breite von 20 Stunden auf 36 Stunden erhöht (1.5 Tage)
-            # Das macht die Balken fast doppelt so dick.
-            balken_breite = 1000 * 60 * 60 * 36 
-
             if chart_typ == "Linien-Diagramm":
-                fig = px.line(plot_df, x='Datum des Eintrags', y=y_spalte, template="plotly_dark", markers=True)
+                fig = px.line(
+                    plot_df, 
+                    x='Datum des Eintrags', 
+                    y=y_spalte, 
+                    color='Stockname', 
+                    color_discrete_map=color_map, 
+                    template="plotly_dark", 
+                    markers=True
+                )
                 fig.update_traces(
-                    line=dict(color='#FFC107', width=3),
-                    marker=dict(size=8, color='#FFC107', line=dict(width=1, color='white')),
-                    fill='tozeroy', 
-                    fillcolor='rgba(255, 193, 7, 0.1)'
+                    line=dict(width=3),
+                    marker=dict(size=8, line=dict(width=1, color='white'))
                 )
             else:
-                fig = px.bar(plot_df, x='Datum des Eintrags', y=y_spalte, template="plotly_dark")
-                
-                # Farbenlogik
-                if metrik == "Zunahme/Abnahme":
-                    farben = ['#2ECC71' if x >= 0 else '#E74C3C' for x in plot_df[y_spalte]]
-                    fig.update_traces(marker_color=farben, marker_line_width=0, width=balken_breite)
-                else:
-                    fig.update_traces(marker_color='#FFC107', marker_line_width=0, width=balken_breite)
+                fig = px.bar(
+                    plot_df, 
+                    x='Datum des Eintrags', 
+                    y=y_spalte, 
+                    color='Stockname', 
+                    color_discrete_map=color_map, 
+                    barmode='group',
+                    template="plotly_dark"
+                )
+                fig.update_traces(marker_line_width=0)
 
             fig.update_layout(
                 xaxis=dict(title="Datum", showgrid=False, zeroline=False),
@@ -208,11 +244,10 @@ if st.session_state.storage_voelker:
                 paper_bgcolor="rgba(0,0,0,0)",
                 hovermode="x unified",
                 margin=dict(l=0, r=0, t=10, b=0),
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, title=None)
             )
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.info(f"💡 Keine Daten für **'{metrik}'** im gewählten Zeitraum.")
 else:
-    st.info("👆 Bitte wähle oben ein Volk aus.")
-
+    st.info("👆 Bitte wähle oben ein oder mehrere Völker aus.")
