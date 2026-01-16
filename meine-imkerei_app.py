@@ -20,10 +20,10 @@ div[data-testid="stDownloadButton"] button {
 </style>
 """, unsafe_allow_html=True)
 
-# Speicher
+# Speicher (HIER SIND DIE NEUEN STANDARDS)
 if 'storage_voelker' not in st.session_state: st.session_state.storage_voelker = []
-if 'storage_chart' not in st.session_state: st.session_state.storage_chart = "Balkendiagramm" 
-if 'storage_zeit' not in st.session_state: st.session_state.storage_zeit = "Letzte 30 Tage"   
+if 'storage_chart' not in st.session_state: st.session_state.storage_chart = "Liniendiagramm" # Standard: Linie
+if 'storage_zeit' not in st.session_state: st.session_state.storage_zeit = "Letzte 6 Monate"   # Standard: 6 Monate
 if 'storage_metrik' not in st.session_state: st.session_state.storage_metrik = "Gewicht"        
 
 # Farben
@@ -93,15 +93,14 @@ if file_to_load:
         # Export (Latin-1, Semikolon für Excel)
         csv_daten = df.to_csv(index=False, sep=';', encoding='latin-1', errors='replace')
         
-        # --- HIER IST DIE ÄNDERUNG: DATUM IM DATEINAMEN ---
-        heute_str = datetime.now().strftime('%Y-%m-%d') # Format: 2026-01-16
+        # Datum im Dateinamen
+        heute_str = datetime.now().strftime('%Y-%m-%d')
         export_name = f"KIM_Daten_{heute_str}.csv"
-        # --------------------------------------------------
 
         download_placeholder.download_button(
             label="💾 Für Excel Speichern", 
             data=csv_daten,
-            file_name=export_name, # Hier nutzen wir den neuen Namen
+            file_name=export_name,
             mime="text/csv",
             use_container_width=True,
             type="secondary"
@@ -116,10 +115,20 @@ else:
 # --- 4. VÖLKERAUSWAHL ---
 st.write("### Schnellzugriff Völker")
 alle_voelker = sorted(df['Stockname'].unique(), key=natural_sort_key)
+
+# Massen-Auswahl Buttons
+c_all, c_none, c_dummy = st.columns([0.2, 0.2, 0.6])
+with c_all:
+    if st.button("✅ Alle auswählen", use_container_width=True):
+        st.session_state.storage_voelker = list(alle_voelker)
+        st.rerun()
+with c_none:
+    if st.button("❌ Auswahl leeren", use_container_width=True):
+        st.session_state.storage_voelker = []
+        st.rerun()
+
 active_color_map = {}
 active_emoji_map = {}
-
-# Maps aufbauen
 for idx, v_name in enumerate(st.session_state.storage_voelker):
     farb_code, icon = FARB_POOL[idx % len(FARB_POOL)]
     active_color_map[v_name] = farb_code
@@ -141,7 +150,6 @@ for i, volk_name in enumerate(alle_voelker):
 if st.session_state.storage_voelker:
     st.markdown("<hr style='margin: 5px 0; border: none; border-top: 1px solid rgba(255,255,255,0.2);'>", unsafe_allow_html=True)
     
-    # Metriken
     metriken = {"Gewicht": "Gewicht", "Zunahme/Abnahme": "Gewicht_Diff", "Varroa": "Milben", "Volksstärke": "Waben_besetzt"}
     m_cols = st.columns(4)
     for i, label in enumerate(metriken.keys()):
@@ -150,16 +158,24 @@ if st.session_state.storage_voelker:
             st.session_state.storage_metrik = label
             st.rerun()
 
-    # Optionen & Plot
     opt_col1, opt_col2 = st.columns([1, 2])
     with opt_col1:
         st.write("#### ⚙️ Optionen")
-        z_opts = ["Alles anzeigen", "Dieses Jahr", "Letzte 6 Monate", "Letzte 3 Monate", "Letzte 30 Tage", "Letzte 14 Tage", "Letzte 7 Tage"]
-        try: z_index = z_opts.index(st.session_state.storage_zeit)
-        except: z_index = 0
-        st.radio("Zeitraum:", z_opts, index=z_index, key="widget_zeit_key", on_change=save_zeit_change)
         
-        c_opts = ["Linien-Diagramm", "Balkendiagramm"]
+        # --- JAHRE ERMITTELN ---
+        verfuegbare_jahre = sorted(df['Datum des Eintrags'].dt.year.unique(), reverse=True)
+        jahre_str = [str(j) for j in verfuegbare_jahre]
+        
+        # "Dieses Jahr" entfernt, da redundant
+        standard_opts = ["Alles anzeigen", "Letzte 6 Monate", "Letzte 3 Monate", "Letzte 30 Tage", "Letzte 14 Tage", "Letzte 7 Tage"]
+        alle_optionen = standard_opts + jahre_str
+        
+        try: z_index = alle_optionen.index(st.session_state.storage_zeit)
+        except: z_index = 1 # Fallback auf Index 1 (Letzte 6 Monate) falls was schief geht
+        st.radio("Zeitraum:", alle_optionen, index=z_index, key="widget_zeit_key", on_change=save_zeit_change)
+        
+        # Umbenannt in "Liniendiagramm"
+        c_opts = ["Liniendiagramm", "Balkendiagramm"]
         try: c_index = c_opts.index(st.session_state.storage_chart)
         except: c_index = 0
         st.radio("Typ:", c_opts, index=c_index, key="widget_chart_key", on_change=save_chart_change)
@@ -173,12 +189,22 @@ if st.session_state.storage_voelker:
         days_map = {"Letzte 7 Tage": 7, "Letzte 14 Tage": 14, "Letzte 30 Tage": 30, "Letzte 3 Monate": 90, "Letzte 6 Monate": 180}
         auswahl = st.session_state.storage_zeit
         
-        if auswahl == "Dieses Jahr":
-            plot_df = plot_df[plot_df['Datum des Eintrags'].dt.year == heute.year]
-        elif auswahl in days_map:
-            plot_df = plot_df[plot_df['Datum des Eintrags'] >= (heute - pd.Timedelta(days=days_map[auswahl]))]
+        # --- FIXIERTE ACHSEN LOGIK & JAHRES-FILTER ---
+        start_date = None
+        end_date = heute + pd.Timedelta(days=1) 
 
-        # Y-Achse
+        if auswahl in days_map:
+            start_date = heute - pd.Timedelta(days=days_map[auswahl])
+            plot_df = plot_df[plot_df['Datum des Eintrags'] >= start_date]
+        
+        elif auswahl.isdigit(): # Wenn "2025", "2026" etc.
+            wahl_jahr = int(auswahl)
+            start_date = pd.Timestamp(year=wahl_jahr, month=1, day=1)
+            end_date = pd.Timestamp(year=wahl_jahr, month=12, day=31)
+            plot_df = plot_df[plot_df['Datum des Eintrags'].dt.year == wahl_jahr]
+            
+        # -----------------------------
+
         y_spalte = "Gewicht"
         metrik = st.session_state.storage_metrik
         
@@ -190,7 +216,6 @@ if st.session_state.storage_voelker:
 
         plot_df = plot_df.dropna(subset=[y_spalte])
 
-        # Warn-Hinweis
         if not plot_df.empty:
             vorhandene_im_plot = plot_df['Stockname'].unique()
             fehlende = [v for v in aktuelle_voelker if v not in vorhandene_im_plot]
@@ -199,7 +224,7 @@ if st.session_state.storage_voelker:
                 st.warning(f"⚠️ Keine Daten für {metrik} im gewählten Zeitraum: {', '.join(fehlende_labels)}")
 
         if not plot_df.empty:
-            if st.session_state.storage_chart == "Linien-Diagramm":
+            if st.session_state.storage_chart == "Liniendiagramm": # Name angepasst
                 fig = px.line(plot_df, x='Datum des Eintrags', y=y_spalte, color='Stockname', 
                               color_discrete_map=active_color_map, template="plotly_dark", markers=True)
                 fig.update_traces(line=dict(width=3), marker=dict(size=8, line=dict(width=1, color='white')))
@@ -208,8 +233,14 @@ if st.session_state.storage_voelker:
                              color_discrete_map=active_color_map, barmode='group', template="plotly_dark")
                 fig.update_traces(marker_line_width=0)
 
+            # --- ACHSE FIXIEREN ---
+            x_axis_config = dict(title=None, showgrid=False, zeroline=False)
+            if start_date:
+                x_axis_config['range'] = [start_date, end_date]
+            # ----------------------
+
             fig.update_layout(
-                xaxis=dict(title=None, showgrid=False),
+                xaxis=x_axis_config,
                 yaxis=dict(title=metrik, gridcolor="rgba(255,255,255,0.1)"),
                 plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, title=None)
