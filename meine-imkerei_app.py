@@ -25,10 +25,9 @@ if 'storage_voelker' not in st.session_state: st.session_state.storage_voelker =
 if 'storage_chart' not in st.session_state: st.session_state.storage_chart = "Liniendiagramm" 
 if 'storage_zeit' not in st.session_state: st.session_state.storage_zeit = "Letzte 6 Monate"   
 if 'storage_metrik' not in st.session_state: st.session_state.storage_metrik = "Gewicht"        
-
-# 🟢 NEUE STANDARDS HIER:
-if 'storage_stauchung' not in st.session_state: st.session_state.storage_stauchung = True  # Standard: AN (gestaucht)
-if 'storage_zeros' not in st.session_state: st.session_state.storage_zeros = False         # Standard: AUS (keine Nullen erfinden)
+# Standards
+if 'storage_stauchung' not in st.session_state: st.session_state.storage_stauchung = True 
+if 'storage_zeros' not in st.session_state: st.session_state.storage_zeros = False         
 
 # Farben
 FARB_POOL = [('#0072B2', '🔵'), ('#E69F00', '🟠'), ('#F0E442', '🟡'), ('#CC79A7', '🟣'), ('#56B4E9', '🧊')]
@@ -84,14 +83,19 @@ if file_to_load:
             df = pd.read_csv(file_to_load, sep=';', encoding='latin-1')
 
         df.columns = df.columns.str.strip()
+        
+        # 1. REINIGUNG & UMBENENNUNG
         rename_map = {}
         for col in df.columns:
             if "Milben" in col: rename_map[col] = "Milben"
-            if "Besetzte" in col: rename_map[col] = "Waben_besetzt"
+            if "Bewertung" in col and ("Volk" in col or "Stärke" in col): 
+                rename_map[col] = "Bewertung Volksstärke"
             if "Bebrütete" in col: rename_map[col] = "Waben_bebruetet"
             if "Rähmchen" in col: rename_map[col] = "Ernte_Raehmchen"
+            
         df = df.rename(columns=rename_map)
-        
+        df = df.loc[:, ~df.columns.duplicated()]
+
         if 'Datum des Eintrags' not in df.columns:
             st.error(f"❌ Spalte 'Datum des Eintrags' fehlt.")
             st.stop()
@@ -157,7 +161,8 @@ for i, volk_name in enumerate(alle_voelker):
 if st.session_state.storage_voelker:
     st.markdown("<hr style='margin: 5px 0; border: none; border-top: 1px solid rgba(255,255,255,0.2);'>", unsafe_allow_html=True)
     
-    metriken = {"Gewicht": "Gewicht", "Zunahme/Abnahme": "Gewicht_Diff", "Varroa": "Milben", "Volksstärke": "Waben_besetzt"}
+    metriken = {"Gewicht": "Gewicht", "Zunahme/Abnahme": "Gewicht_Diff", "Varroa": "Milben", "Volksstärke": "Bewertung Volksstärke"}
+    
     m_cols = st.columns(4)
     for i, label in enumerate(metriken.keys()):
         aktiv = (st.session_state.storage_metrik == label)
@@ -233,50 +238,57 @@ if st.session_state.storage_voelker:
                 plot_df[y_spalte] = plot_df[y_spalte].fillna(0)
             
         elif metrik == "Volksstärke": 
-            y_spalte = "Waben_besetzt"
-            if st.session_state.storage_zeros:
+            y_spalte = "Bewertung Volksstärke"
+            if y_spalte in plot_df.columns and st.session_state.storage_zeros:
                 plot_df[y_spalte] = plot_df[y_spalte].fillna(0)
 
-        plot_df = plot_df.dropna(subset=[y_spalte])
+        if y_spalte in plot_df.columns:
+            plot_df = plot_df.dropna(subset=[y_spalte])
 
-        if not plot_df.empty:
+        if not plot_df.empty and y_spalte in plot_df.columns:
             vorhandene_im_plot = plot_df['Stockname'].unique()
             fehlende = [v for v in aktuelle_voelker if v not in vorhandene_im_plot]
             if fehlende:
                 fehlende_labels = [f"**{active_emoji_map[v]} {v}**" for v in fehlende]
                 st.warning(f"⚠️ Keine Daten für {metrik} im gewählten Zeitraum: {', '.join(fehlende_labels)}")
 
-        if not plot_df.empty:
+        if not plot_df.empty and y_spalte in plot_df.columns:
             if start_date:
                 info_text = f"📅 Filter-Zeitraum: {start_date.strftime('%d.%m.%Y')} bis {end_date.strftime('%d.%m.%Y')}"
             else:
                 info_text = "📅 Filter-Zeitraum: Alle verfügbaren Daten"
             st.caption(info_text)
 
+            # PODEST-TRICK
+            if metrik == "Volksstärke":
+                plot_df[y_spalte] = plot_df[y_spalte] + 1
+
+            # 🟢 1. REIHENFOLGE DER VÖLKER FESTLEGEN (SORTIERT)
+            # Wir erstellen eine Liste aller Völker im Plot und sortieren sie natürlich (1, 2, 10...)
+            sortierte_voelker = sorted(plot_df['Stockname'].unique(), key=natural_sort_key)
+
             # --- PLOT ---
             if not st.session_state.storage_stauchung:
                 # 🔵 MODUS NORMAL
                 if st.session_state.storage_chart == "Liniendiagramm":
                     fig = px.line(plot_df, x='Datum des Eintrags', y=y_spalte, color='Stockname', 
-                                  color_discrete_map=active_color_map, template="plotly_dark", markers=True)
+                                  color_discrete_map=active_color_map, template="plotly_dark", markers=True,
+                                  # 🟢 HIER: Sortierung erzwingen
+                                  category_orders={'Stockname': sortierte_voelker})
                     fig.update_traces(line=dict(width=3), marker=dict(size=8, line=dict(width=1, color='white')))
                 else:
                     fig = px.bar(plot_df, x='Datum des Eintrags', y=y_spalte, color='Stockname', 
-                                 color_discrete_map=active_color_map, barmode='group', template="plotly_dark")
+                                 color_discrete_map=active_color_map, barmode='group', template="plotly_dark",
+                                 # 🟢 HIER: Sortierung erzwingen
+                                 category_orders={'Stockname': sortierte_voelker})
                     fig.update_layout(bargap=0.1, bargroupgap=0.05)
                 
-                # Achse fixieren & ZENTRIEREN
                 x_axis_config = dict(
-                    title=None, 
-                    showgrid=False, 
-                    zeroline=False,
-                    ticklabelmode="period", 
-                    dtick="M1", 
-                    tickformat="%b %y"
+                    title=None, showgrid=False, zeroline=False,
+                    ticklabelmode="period", dtick="M1", tickformat="%b %y"
                 )
                 if start_date: x_axis_config['range'] = [start_date, end_date]
 
-                # Zebra
                 x_min = start_date if start_date else plot_df['Datum des Eintrags'].min()
                 x_max = end_date if start_date else plot_df['Datum des Eintrags'].max()
                 monats_raster = pd.date_range(start=x_min - pd.Timedelta(days=32), end=x_max + pd.Timedelta(days=32), freq='MS')
@@ -286,28 +298,26 @@ if st.session_state.storage_voelker:
 
             else:
                 # 🔴 MODUS GESTAUCHT
-                
-                # Sortierung fixen (Anti-Spaghetti & Anti-Zeitsprung)
                 plot_df = plot_df.sort_values("Datum des Eintrags")
                 plot_df['Datum_Label'] = plot_df['Datum des Eintrags'].dt.strftime('%d.%m.%y')
                 sorted_labels = plot_df['Datum_Label'].unique()
                 
                 if st.session_state.storage_chart == "Liniendiagramm":
                     fig = px.line(plot_df, x='Datum_Label', y=y_spalte, color='Stockname', 
-                                  color_discrete_map=active_color_map, template="plotly_dark", markers=True)
+                                  color_discrete_map=active_color_map, template="plotly_dark", markers=True,
+                                  # 🟢 HIER: Sortierung erzwingen
+                                  category_orders={'Stockname': sortierte_voelker})
                     fig.update_traces(line=dict(width=3), marker=dict(size=8, line=dict(width=1, color='white')))
                 else:
                     fig = px.bar(plot_df, x='Datum_Label', y=y_spalte, color='Stockname', 
-                                 color_discrete_map=active_color_map, barmode='group', template="plotly_dark")
+                                 color_discrete_map=active_color_map, barmode='group', template="plotly_dark",
+                                 # 🟢 HIER: Sortierung erzwingen
+                                 category_orders={'Stockname': sortierte_voelker})
                     fig.update_layout(bargap=0.1, bargroupgap=0.05)
                 
-                # Erzwungene Sortierung
                 x_axis_config = dict(
-                    title=None, 
-                    showgrid=False, 
-                    type='category',
-                    categoryorder='array', 
-                    categoryarray=sorted_labels
+                    title=None, showgrid=False, type='category',
+                    categoryorder='array', categoryarray=sorted_labels
                 )
                 
                 unique_dates = plot_df['Datum_Label'].unique()
@@ -315,14 +325,28 @@ if st.session_state.storage_voelker:
                     if i % 2 == 0: 
                         fig.add_vrect(x0=i-0.5, x1=i+0.5, fillcolor="rgba(255,255,255,0.05)", layer="below", line_width=0)
 
+            # ACHSE MIT TEXT (ANGEPASSTE WERTE)
+            y_axis_config = dict(title=metrik, gridcolor="rgba(255,255,255,0.1)")
+            
+            if metrik == "Volksstärke":
+                y_axis_config.update(dict(
+                    tickmode='array',
+                    tickvals=[1, 2, 3], 
+                    ticktext=['Schwach', 'Normal', 'Stark'],
+                    range=[0.5, 3.1]
+                ))
+
             fig.update_layout(
                 xaxis=x_axis_config,
-                yaxis=dict(title=metrik, gridcolor="rgba(255,255,255,0.1)"),
+                yaxis=y_axis_config,
                 plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, title=None)
             )
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info(f"💡 Keine Daten für **'{metrik}'** im gewählten Zeitraum.")
+            if y_spalte not in plot_df.columns:
+                 st.error(f"⚠️ Spalte '{y_spalte}' nicht gefunden. Bitte CSV prüfen.")
+            else:
+                 st.info(f"💡 Keine Daten für **'{metrik}'** im gewählten Zeitraum.")
 else:
     st.info("👆 Bitte wähle oben ein oder mehrere Völker aus.")
