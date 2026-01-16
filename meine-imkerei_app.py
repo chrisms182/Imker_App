@@ -25,8 +25,10 @@ if 'storage_voelker' not in st.session_state: st.session_state.storage_voelker =
 if 'storage_chart' not in st.session_state: st.session_state.storage_chart = "Liniendiagramm" 
 if 'storage_zeit' not in st.session_state: st.session_state.storage_zeit = "Letzte 6 Monate"   
 if 'storage_metrik' not in st.session_state: st.session_state.storage_metrik = "Gewicht"        
-if 'storage_stauchung' not in st.session_state: st.session_state.storage_stauchung = False
-if 'storage_zeros' not in st.session_state: st.session_state.storage_zeros = True 
+
+# 🟢 NEUE STANDARDS HIER:
+if 'storage_stauchung' not in st.session_state: st.session_state.storage_stauchung = True  # Standard: AN (gestaucht)
+if 'storage_zeros' not in st.session_state: st.session_state.storage_zeros = False         # Standard: AUS (keine Nullen erfinden)
 
 # Farben
 FARB_POOL = [('#0072B2', '🔵'), ('#E69F00', '🟠'), ('#F0E442', '🟡'), ('#CC79A7', '🟣'), ('#56B4E9', '🧊')]
@@ -253,7 +255,7 @@ if st.session_state.storage_voelker:
 
             # --- PLOT ---
             if not st.session_state.storage_stauchung:
-                # 🔵 MODUS NORMAL (Echte Zeitachse)
+                # 🔵 MODUS NORMAL
                 if st.session_state.storage_chart == "Liniendiagramm":
                     fig = px.line(plot_df, x='Datum des Eintrags', y=y_spalte, color='Stockname', 
                                   color_discrete_map=active_color_map, template="plotly_dark", markers=True)
@@ -283,14 +285,11 @@ if st.session_state.storage_voelker:
                         fig.add_vrect(x0=m_start, x1=monats_raster[i+1], fillcolor="rgba(255,255,255,0.05)", layer="below", line_width=0)
 
             else:
-                # 🔴 MODUS GESTAUCHT (Kategorie-Achse)
+                # 🔴 MODUS GESTAUCHT
                 
-                # Sortieren, damit die Reihenfolge stimmt
+                # Sortierung fixen (Anti-Spaghetti & Anti-Zeitsprung)
                 plot_df = plot_df.sort_values("Datum des Eintrags")
                 plot_df['Datum_Label'] = plot_df['Datum des Eintrags'].dt.strftime('%d.%m.%y')
-                
-                # 🟢 HIER IST DER FIX: MASTER-SORTIERUNG
-                # Wir holen uns ALLE Labels in der korrekten, zeitlichen Reihenfolge
                 sorted_labels = plot_df['Datum_Label'].unique()
                 
                 if st.session_state.storage_chart == "Liniendiagramm":
@@ -302,7 +301,7 @@ if st.session_state.storage_voelker:
                                  color_discrete_map=active_color_map, barmode='group', template="plotly_dark")
                     fig.update_layout(bargap=0.1, bargroupgap=0.05)
                 
-                # Wir zwingen Plotly, DIESE Reihenfolge zu nutzen
+                # Erzwungene Sortierung
                 x_axis_config = dict(
                     title=None, 
                     showgrid=False, 
