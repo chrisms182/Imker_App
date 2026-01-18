@@ -29,8 +29,11 @@ if 'storage_metrik' not in st.session_state: st.session_state.storage_metrik = "
 if 'storage_stauchung' not in st.session_state: st.session_state.storage_stauchung = True 
 if 'storage_zeros' not in st.session_state: st.session_state.storage_zeros = False         
 
-# Farben
-FARB_POOL = [('#0072B2', '🔵'), ('#E69F00', '🟠'), ('#F0E442', '🟡'), ('#CC79A7', '🟣'), ('#56B4E9', '🧊')]
+# Farben (ERWEITERT für viele Völker)
+FARB_POOL = [
+    ('#0072B2', '🔵'), ('#E69F00', '🟠'), ('#F0E442', '🟡'), ('#CC79A7', '🟣'), ('#56B4E9', '🧊'),
+    ('#D55E00', '🔴'), ('#009E73', '🟢'), ('#999999', '⚪'), ('#F0F0F0', '🥚'), ('#1f77b4', '🧢')
+]
 
 # Helper
 def save_chart_change(): st.session_state.storage_chart = st.session_state.widget_chart_key
@@ -84,18 +87,35 @@ if file_to_load:
 
         df.columns = df.columns.str.strip()
         
-        # 1. REINIGUNG & UMBENENNUNG
+        
+        # 🟢 1. REINIGUNG & UMBENENNUNG
         rename_map = {}
         for col in df.columns:
-            if "Milben" in col: rename_map[col] = "Milben"
+            # Varroa-Logik: Wir suchen die ZWEI Bestandteile
+            if "hlte" in col and "Milben" in col: 
+                rename_map[col] = "Milben_Count"
+            if "hlzeitraum"in col and "Tage" in col:
+                rename_map[col] = "Milben_Days"
+
+            # Volksstärke-Logik
             if "Bewertung" in col and ("Volk" in col or "Stärke" in col): 
                 rename_map[col] = "Bewertung Volksstärke"
-            if "Bebrütete" in col: rename_map[col] = "Waben_bebruetet"
-            if "Rähmchen" in col: rename_map[col] = "Ernte_Raehmchen"
-            
+                        
         df = df.rename(columns=rename_map)
         df = df.loc[:, ~df.columns.duplicated()]
 
+
+        # 🟢 2. VARROA BERECHNUNG (Milben / Tage)
+        if 'Milben_Count' in df.columns and 'Milben_Days' in df.columns:
+            # Zahlen sicherstellen
+            c = pd.to_numeric(df['Milben_Count'], errors='coerce')
+            # Bei Tagen: Wenn leer oder 0, nehmen wir 1 an (um 'Teilen durch 0' zu verhindern)
+            d = pd.to_numeric(df['Milben_Days'], errors='coerce').fillna(1)
+            d = d.replace(0, 1) 
+            
+            # HIER PASSIERT DIE MAGIE:
+            df['Milben'] = c / d
+            
         if 'Datum des Eintrags' not in df.columns:
             st.error(f"❌ Spalte 'Datum des Eintrags' fehlt.")
             st.stop()
@@ -141,6 +161,7 @@ with c_none:
 active_color_map = {}
 active_emoji_map = {}
 for idx, v_name in enumerate(st.session_state.storage_voelker):
+    # Farb-Pool nutzen
     farb_code, icon = FARB_POOL[idx % len(FARB_POOL)]
     active_color_map[v_name] = farb_code
     active_emoji_map[v_name] = icon
@@ -161,7 +182,8 @@ for i, volk_name in enumerate(alle_voelker):
 if st.session_state.storage_voelker:
     st.markdown("<hr style='margin: 5px 0; border: none; border-top: 1px solid rgba(255,255,255,0.2);'>", unsafe_allow_html=True)
     
-    metriken = {"Gewicht": "Gewicht", "Zunahme/Abnahme": "Gewicht_Diff", "Varroa": "Milben", "Volksstärke": "Bewertung Volksstärke"}
+    # 🟢 HIER IST DIE NEUE BESCHRIFTUNG
+    metriken = {"Gewicht": "Gewicht", "Zunahme/Abnahme": "Gewicht_Diff", "Varroa (Milben/Tag)": "Milben", "Volksstärke": "Bewertung Volksstärke"}
     
     m_cols = st.columns(4)
     for i, label in enumerate(metriken.keys()):
@@ -232,7 +254,7 @@ if st.session_state.storage_voelker:
             if st.session_state.storage_zeros:
                 plot_df[y_spalte] = plot_df[y_spalte].fillna(0)
             
-        elif metrik == "Varroa": 
+        elif metrik == "Varroa (Milben/Tag)": 
             y_spalte = "Milben"
             if st.session_state.storage_zeros:
                 plot_df[y_spalte] = plot_df[y_spalte].fillna(0)
@@ -259,13 +281,14 @@ if st.session_state.storage_voelker:
                 info_text = "📅 Filter-Zeitraum: Alle verfügbaren Daten"
             st.caption(info_text)
 
-            # PODEST-TRICK
+            # PODEST-TRICK (Volksstärke)
             if metrik == "Volksstärke":
                 plot_df[y_spalte] = plot_df[y_spalte] + 1
 
-            # 🟢 1. REIHENFOLGE DER VÖLKER FESTLEGEN (SORTIERT)
-            # Wir erstellen eine Liste aller Völker im Plot und sortieren sie natürlich (1, 2, 10...)
+            # 🟢 REIHENFOLGE DER VÖLKER (HARD SORT)
             sortierte_voelker = sorted(plot_df['Stockname'].unique(), key=natural_sort_key)
+            plot_df['Stockname'] = pd.Categorical(plot_df['Stockname'], categories=sortierte_voelker, ordered=True)
+            plot_df = plot_df.sort_values(by=['Datum des Eintrags', 'Stockname'])
 
             # --- PLOT ---
             if not st.session_state.storage_stauchung:
@@ -273,13 +296,11 @@ if st.session_state.storage_voelker:
                 if st.session_state.storage_chart == "Liniendiagramm":
                     fig = px.line(plot_df, x='Datum des Eintrags', y=y_spalte, color='Stockname', 
                                   color_discrete_map=active_color_map, template="plotly_dark", markers=True,
-                                  # 🟢 HIER: Sortierung erzwingen
                                   category_orders={'Stockname': sortierte_voelker})
                     fig.update_traces(line=dict(width=3), marker=dict(size=8, line=dict(width=1, color='white')))
                 else:
                     fig = px.bar(plot_df, x='Datum des Eintrags', y=y_spalte, color='Stockname', 
                                  color_discrete_map=active_color_map, barmode='group', template="plotly_dark",
-                                 # 🟢 HIER: Sortierung erzwingen
                                  category_orders={'Stockname': sortierte_voelker})
                     fig.update_layout(bargap=0.1, bargroupgap=0.05)
                 
@@ -298,20 +319,17 @@ if st.session_state.storage_voelker:
 
             else:
                 # 🔴 MODUS GESTAUCHT
-                plot_df = plot_df.sort_values("Datum des Eintrags")
                 plot_df['Datum_Label'] = plot_df['Datum des Eintrags'].dt.strftime('%d.%m.%y')
                 sorted_labels = plot_df['Datum_Label'].unique()
                 
                 if st.session_state.storage_chart == "Liniendiagramm":
                     fig = px.line(plot_df, x='Datum_Label', y=y_spalte, color='Stockname', 
                                   color_discrete_map=active_color_map, template="plotly_dark", markers=True,
-                                  # 🟢 HIER: Sortierung erzwingen
                                   category_orders={'Stockname': sortierte_voelker})
                     fig.update_traces(line=dict(width=3), marker=dict(size=8, line=dict(width=1, color='white')))
                 else:
                     fig = px.bar(plot_df, x='Datum_Label', y=y_spalte, color='Stockname', 
                                  color_discrete_map=active_color_map, barmode='group', template="plotly_dark",
-                                 # 🟢 HIER: Sortierung erzwingen
                                  category_orders={'Stockname': sortierte_voelker})
                     fig.update_layout(bargap=0.1, bargroupgap=0.05)
                 
