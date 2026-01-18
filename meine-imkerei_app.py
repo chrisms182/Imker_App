@@ -29,10 +29,18 @@ if 'storage_metrik' not in st.session_state: st.session_state.storage_metrik = "
 if 'storage_stauchung' not in st.session_state: st.session_state.storage_stauchung = True 
 if 'storage_zeros' not in st.session_state: st.session_state.storage_zeros = False         
 
-# Farben (ERWEITERT für viele Völker)
+# 🟢 NEUE FARB-PALETTE (Maximaler Kontrast)
 FARB_POOL = [
-    ('#0072B2', '🔵'), ('#E69F00', '🟠'), ('#F0E442', '🟡'), ('#CC79A7', '🟣'), ('#56B4E9', '🧊'),
-    ('#D55E00', '🔴'), ('#009E73', '🟢'), ('#999999', '⚪'), ('#F0F0F0', '🥚'), ('#1f77b4', '🧢')
+    ('#E6194B', '🔴'), # Signalrot
+    ('#3CB44B', '🟢'), # Sattes Grün
+    ('#FFE119', '🟡'), # Dunkelgelb / Gold
+    ('#4363D8', '🔵'), # Kräftiges Blau
+    ('#F58231', '🟠'), # Orange
+    ('#911EB4', '🟣'), # Lila / Violett
+    ('#42D4F4', '💧'), # Cyan / Türkis
+    ('#F032E6', '🌸'), # Magenta / Pink
+    ('#BFEF45', '🍏'), # Limettengrün
+    ('#A9A9A9', '🐘')  # Grau / Anthrazit
 ]
 
 # Helper
@@ -368,3 +376,4 @@ if st.session_state.storage_voelker:
                  st.info(f"💡 Keine Daten für **'{metrik}'** im gewählten Zeitraum.")
 else:
     st.info("👆 Bitte wähle oben ein oder mehrere Völker aus.")
+
