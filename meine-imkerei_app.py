@@ -129,7 +129,7 @@ if file_to_load:
             st.stop()
 
         df['Datum des Eintrags'] = pd.to_datetime(df['Datum des Eintrags'], dayfirst=True, errors='coerce')
-        df['Datum des Eintrags'] = df['Datum des Eintrags'].dt.normalize()
+        #df['Datum des Eintrags'] = df['Datum des Eintrags'].dt.normalize()
         
         df = df.dropna(subset=['Datum des Eintrags', 'Stockname'])
         
@@ -376,4 +376,3 @@ if st.session_state.storage_voelker:
                  st.info(f"💡 Keine Daten für **'{metrik}'** im gewählten Zeitraum.")
 else:
     st.info("👆 Bitte wähle oben ein oder mehrere Völker aus.")
-
